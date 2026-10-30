@@ -1,0 +1,76 @@
+
+export default {
+ async fetch(request, env) {
+  const headers = {
+   "Content-Type": "application/json",
+   "Access-Control-Allow-Origin": "*",
+   "Access-Control-Allow-Methods": "POST, OPTIONS",
+   "Access-Control-Allow-Headers": "Content-Type"
+  };
+
+  if (request.method === "OPTIONS") {
+   return new Response(null, {headers});
+  }
+
+  if (request.method !== "POST") {
+   return Response.json({error:"Method not allowed"},{status:405,headers});
+  }
+
+  try {
+   if (!env.GROQ_API_KEY) {
+    throw new Error("GROQ_API_KEY secret is missing");
+   }
+
+   const body = await request.json();
+
+   if (!Array.isArray(body.messages)) {
+    return Response.json({error:"Messages are required"},{status:400,headers});
+   }
+
+   const allowed = ["llama-3.3-70b-versatile","openai/gpt-oss-20b"];
+   const model = allowed.includes(body.model)
+     ? body.model
+     : "llama-3.3-70b-versatile";
+
+   const messages = body.messages
+    .filter(m => ["user","assistant","system"].includes(m.role))
+    .slice(-30);
+
+   const result = await fetch(
+    "https://api.groq.com/openai/v1/chat/completions",
+    {
+     method:"POST",
+     headers:{
+      "Authorization":"Bearer "+env.GROQ_API_KEY,
+      "Content-Type":"application/json"
+     },
+     body:JSON.stringify({
+      model,
+      messages,
+      temperature:0.7,
+      max_tokens:1500
+     })
+    }
+   );
+
+   const data = await result.json();
+
+   if (!result.ok) {
+    return Response.json(
+     {error:data.error?.message || "Groq API error"},
+     {status:result.status,headers}
+    );
+   }
+
+   return Response.json({
+    reply:data.choices?.[0]?.message?.content || "No reply received"
+   },{headers});
+
+  } catch(error) {
+   return Response.json(
+    {error:error.message || "Server error"},
+    {status:500,headers}
+   );
+  }
+ }
+};
